@@ -40,16 +40,23 @@ class SaveData():
         self.best_score = 0
         self.tb_writter = tensorboardX.SummaryWriter(logdir=self.tensorboard_dir)
 
-    def save_model(self, model, epoch, score):
+    def save_model(self, Generator, GlobalDiscriminator, epoch, score):
         if self.args.multi:
-            model = model.module
-        torch.save(model.state_dict(), self.save_dir_model + '/model_lastest.pt')
-        torch.save(model.state_dict(), self.save_dir_model + '/model_' + str(epoch) + '.pt')
-        torch.save(model, self.save_dir_model + '/model_obj.pt')
+            Generator = Generator.module
+            GlobalDiscriminator = GlobalDiscriminator.module
+        torch.save(Generator.state_dict(), self.save_dir_model + '/Gen_lastest.pt')
+        torch.save(Generator.state_dict(), self.save_dir_model + '/Gen_' + str(epoch) + '.pt')
+        torch.save(Generator, self.save_dir_model + '/model_obj.pt')
+
+        torch.save(GlobalDiscriminator.state_dict(), self.save_dir_model + '/DisGlobal_lastest.pt')
+        torch.save(GlobalDiscriminator.state_dict(), self.save_dir_model + '/DisGlobal_' + str(epoch) + '.pt')
+        torch.save(GlobalDiscriminator, self.save_dir_model + '/model_obj.pt')
+
         torch.save(epoch, self.save_dir_model + '/last_epoch.pt')
         if score > self.best_score:
             self.best_score = score
-            torch.save(model.state_dict(), self.save_dir_model + '/model_best.pt')
+            torch.save(Generator.state_dict(), self.save_dir_model + '/Gen_best.pt')
+            torch.save(GlobalDiscriminator.state_dict(), self.save_dir_model + '/DisGlobal_best.pt')
             torch.save(epoch, self.save_dir_model + '/best_epoch.pt')
 
     def save_log(self, log):
@@ -57,11 +64,12 @@ class SaveData():
         self.logFile.write(log + '\n')
         self.logFile.flush()
 
-    def load_model(self, model):
-        model.load_state_dict(torch.load(self.save_dir_model + '/model_lastest.pt'))
+    def load_model(self, Generator, GlobalDiscriminator, LocalDiscrimminator):
+        Generator.load_state_dict(torch.load(self.save_dir_model + '/Gen_lastest.pt'))
+        GlobalDiscriminator.load_state_dict(torch.load(self.save_dir_model + '/DisGlobal_lastest.pt'))
         last_epoch = torch.load(self.save_dir_model + '/last_epoch.pt')
-        print("load mode_status frmo {}/model_lastest.pt, epoch: {}".format(self.save_dir_model, last_epoch))
-        return model, last_epoch
+        print("load mode_status from {}/model_lastest.pt, epoch: {}".format(self.save_dir_model, last_epoch))
+        return Generator,GlobalDiscriminator,last_epoch
 
     def load_best_model(self, model):
         model.load_state_dict(torch.load(self.save_dir_model + '/model_best.pt'))
@@ -124,14 +132,15 @@ class AverageMeter():
 
 def unnormalize(img):
     out = img.data.cpu().numpy()
-    nor = out*0.5 +0.5
-    nor = nor*255.0
+    # import pdb;
+    # pdb.set_trace()
+    nor = out*255.0
     nor = nor.clip(0, 255)
-    nor = nor.transpose(1, 2, 0)[..., ::-1]
+    nor = nor.transpose(1, 2, 0)#[..., ::-1]
     return nor
 
 
-def psnr_ssim_from_sci(img1, img2, padding=4):
+def psnr_ssim_from_sci(img1, img2, padding=4,y_channels = False):
     '''
     Calculate PSNR and SSIM on Y channels for image super resolution
     :param img1: numpy array
@@ -141,17 +150,26 @@ def psnr_ssim_from_sci(img1, img2, padding=4):
     '''
 
     img1 = Image.fromarray(np.uint8(img1), mode='RGB')
-    img1 = img1.convert('YCbCr')
-    img1 = np.ndarray((img1.size[1], img1.size[0], 3), 'u1', img1.tobytes())
     img2 = Image.fromarray(np.uint8(img2), mode='RGB')
-    img2 = img2.convert('YCbCr')
-    img2 = np.ndarray((img2.size[1], img2.size[0], 3), 'u1', img2.tobytes())
-    # get channel Y
-    img1 = img1[:, :, 0]
-    img2 = img2[:, :, 0]
-    # padding
-    img1 = img1[padding: -padding, padding:-padding]
-    img2 = img2[padding: -padding, padding:-padding]
-    ss = ssim(img1, img2)
-    ps = psnr(img1, img2,255.0)
+    if y_channels:
+        img1 = img1.convert('YCbCr')
+        img1 = np.ndarray((img1.size[1], img1.size[0], 3), 'u1', img1.tobytes())
+        img2 = img2.convert('YCbCr')
+        img2 = np.ndarray((img2.size[1], img2.size[0], 3), 'u1', img2.tobytes())
+        # get channel Y
+        img1 = img1[:, :, 0]
+        img2 = img2[:, :, 0]
+        # padding
+        img1 = img1[padding: -padding, padding:-padding]
+        img2 = img2[padding: -padding, padding:-padding]
+        ss = ssim(img1, img2)
+        ps = psnr(img1, img2,255.0)
+    else:
+        # padding
+        img1 = np.array(img1)
+        img2 = np.array(img2)
+        # img1 = img1[padding: -padding, padding:-padding,:]
+        # img2 = img2[padding: -padding, padding:-padding,:]
+        ps = psnr(img1,img2,255)
+        ss = ssim(img1,img2,multichannel=True)
     return (ps, ss)
