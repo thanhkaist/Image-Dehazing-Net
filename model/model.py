@@ -8,6 +8,19 @@ import math
 
 # Model related functions
 
+def set_requires_grad(nets, requires_grad=False):
+        """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
+        Parameters:
+            nets (network list)   -- a list of networks
+            requires_grad (bool)  -- whether the networks require gradients or not
+        """
+        if not isinstance(nets, list):
+            nets = [nets]
+        for net in nets:
+            if net is not None:
+                for param in net.parameters():
+                    param.requires_grad = requires_grad
+
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -29,9 +42,9 @@ def print_network(net):
     print(net)
     print('Total number of parameters: %d' % num_params)
     
-def get_generator( ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[]):          
-    netG = Gen2Local(3, 3, ngf, n_downsample_global, n_blocks_global)
-    print(netG)
+def get_generator( enhance = False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[]):
+    netG = Gen2Local(3, 3,enhance, ngf, n_downsample_global, n_blocks_global)
+    #print(netG)
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())   
         netG.cuda(gpu_ids[0])
@@ -220,7 +233,7 @@ class Gen1Global(nn.Module):
         ### upsample         
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=4, stride=2, padding=1), # , output_padding=1
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1), # 
                        norm_layer(int(ngf * mult / 2)), activation]
         model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.ReLU()]
         self.model = nn.Sequential(*model)
@@ -231,16 +244,17 @@ class Gen1Global(nn.Module):
 
 class Gen2Local(nn.Module):
 
-    def __init__(self, input_nc, output_nc, ngf=32, n_downsample_global=3, n_blocks_global=9, 
+    def __init__(self, input_nc, output_nc, enhance = True, ngf=32, n_downsample_global=3, n_blocks_global=9,
                  n_local_enhancers=1, n_blocks_local=3, norm_layer=nn.InstanceNorm2d, padding_type='reflect'):
         super(Gen2Local, self).__init__()
         self.n_local_enhancers = n_local_enhancers
-        
+
         ###### global generator model #####           
         ngf_global = ngf * (2**n_local_enhancers)  # 64 
         model_global = Gen1Global(input_nc, output_nc, ngf_global, n_downsample_global, n_blocks_global, norm_layer).model        
         model_global = [model_global[i] for i in range(len(model_global)-3)] # get rid of final convolution layers        
-        self.model = nn.Sequential(*model_global)                
+        self.model = nn.Sequential(*model_global)
+        self.enhance = enhance
 
         ###### local enhancer layers #####
         for n in range(1, n_local_enhancers+1):
@@ -256,7 +270,7 @@ class Gen2Local(nn.Module):
                 model_upsample += [ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer)]
 
             ### upsample
-            model_upsample += [nn.ConvTranspose2d(ngf_global * 2, ngf_global, kernel_size=4, stride=2, padding=1), # , output_padding=1
+            model_upsample += [nn.ConvTranspose2d(ngf_global * 2, ngf_global, kernel_size=3, stride=2, padding=1,output_padding=1), # , output_padding=1
                                norm_layer(ngf_global), nn.ReLU(True)] # 32     
 
             ### final convolution
@@ -267,8 +281,9 @@ class Gen2Local(nn.Module):
             setattr(self, 'model'+str(n)+'_2', nn.Sequential(*model_upsample))                  
         
         self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
-        self.dehaze=EnhancerBlock()
-        self.dehaze2=EnhancerBlock()
+        if self.enhance:
+            self.dehaze=EnhancerBlock()
+            self.dehaze2=EnhancerBlock()
         
     def forward(self, input): 
         ### create input pyramid
@@ -285,10 +300,13 @@ class Gen2Local(nn.Module):
             model_upsample = getattr(self, 'model'+str(n_local_enhancers)+'_2')            
             input_i = input_downsampled[self.n_local_enhancers-n_local_enhancers]    # [x2]
             output_prev = model_upsample(model_downsample(input_i) + output_prev)  # [x2]-> f2, (f2+f1) => M
-        tmp=torch.cat((output_prev,input), 1)  # [M,x2]
-        dehaze=self.dehaze(tmp)  # Y1
-        tmp=torch.cat((output_prev,dehaze),1) #[M,y1]
-        dehaze=self.dehaze2(tmp)  # Y2
+        if self.enhance:
+            tmp=torch.cat((output_prev,input), 1)  # [M,x2]
+            dehaze=self.dehaze(tmp)  # Y1
+            tmp=torch.cat((output_prev,dehaze),1) #[M,y1]
+            dehaze=self.dehaze2(tmp)  # Y2
+        else:
+            dehaze = output_prev
         return output_prev,dehaze # (M,Y2)
 
 
@@ -342,7 +360,7 @@ class EnhancerBlock(nn.Module):
 
 class MultiscaleDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d, 
-                 use_sigmoid=True, num_D=2, getIntermFeat=False):
+                 use_sigmoid=False, num_D=2, getIntermFeat=False):
         super(MultiscaleDiscriminator, self).__init__()
         self.num_D = num_D
         self.n_layers = n_layers

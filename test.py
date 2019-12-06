@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(description='Super Resolution')
 parser.add_argument('model_name', choices=['Normal', 'Enhance'], help='model to select')
 parser.add_argument('--dataset', type=str, default='Indoor')
 
-parser.add_argument('--pretrained_model', default='result1000/Net1/model/Gen_lastest.pt', help='save result')
+parser.add_argument('--pretrained_model', default='result1/Net1/model/Gen_best.pt', help='save result')
 
 parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
@@ -36,8 +36,8 @@ def test(args):
     lamda = 10
     # define model
     if args.model_name == 'Normal':
-        Generator = model.get_generator(ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
-        Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
+        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
+        Discriminator = model.get_discriminator(True,input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
 
     elif args.model_name == 'Enhance':
         Generator = model.get_generator(ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
@@ -90,11 +90,12 @@ def test(args):
 
             begin_time = time.time()
             output, enhance = Generator(im_hazy)
+            #enhance = output
             end_time = time.time()
             avg_time += (end_time - begin_time)
 
         enhance = unnormalize(enhance[0])
-        # import pdb;
+        #import pdb;
         # pdb.set_trace()
 
         out = Image.fromarray(np.uint8(enhance), mode='RGB')  # output of SRCNN

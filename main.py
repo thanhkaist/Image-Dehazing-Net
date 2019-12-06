@@ -7,7 +7,7 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import math
 from model import model
-from model.model import weights_init, no_of_parameters
+from model.model import weights_init, no_of_parameters, set_requires_grad
 from data import get_test_dataloader, get_train_dataloader
 from utils import *
 import time
@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser(description='Single Image Super Resolution')
 parser.add_argument('model_name', choices=['Normal', 'Enhance'], help='model to select')
 
 
-parser.add_argument('--lsGan',action='store_true', help='useGan loss')
+parser.add_argument('--lsGan',action='store_true',default =True, help='useGan loss')
 # resume or findtune
 parser.add_argument('--finetuning',action='store_true', help='finetuning the training')
 # load save
@@ -37,10 +37,10 @@ parser.add_argument('--nChannel', type=int, default=3, help='number of color cha
 parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 
 # training specific
-parser.add_argument('--batchSize', type=int, default=5, help='input batch size for training')
+parser.add_argument('--batchSize', type=int, default=2, help='input batch size for training')
 parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
 parser.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
-parser.add_argument('--lrDecay', type=int, default=100, help='epoch of half lr')
+parser.add_argument('--lrDecay', type=int, default=300, help='epoch of half lr')
 parser.add_argument('--decayType', default='inv', help='lr decay function')
 parser.add_argument('--lossType', default='L1', help='Loss type')
 
@@ -58,7 +58,7 @@ elif args.gpu == 1:
 
 
 class LrScheduler():
-    def __init__(self, init_lr, type='step', decay_interval=30):
+    def __init__(self, init_lr, type='step', decay_interval=300):
         if type in ['step', 'inv', 'exp'] == False:
             raise Exception('{} learning rate scheduler is not supported'.format(type))
         self.__type = type
@@ -81,14 +81,14 @@ class LrScheduler():
         return lr
 
 
-def test(model, dataloader):
+def test(model, dataloader,epoch):
     avg_psnr = 0
     avg_ssim = 0
-    crop = False
+    crop = True
     no_test = 5
     count = 0
     if crop:
-        center_crop = 256
+        center_crop = 256*4
     for batch, (im_hazy, im_gt, im_name) in enumerate(dataloader):
         with torch.no_grad():
             im_hazy = Variable(im_hazy.cuda(), volatile=False)
@@ -114,6 +114,10 @@ def test(model, dataloader):
 
         enhance = unnormalize(enhance[0])
         im_gt = unnormalize(im_gt[0])
+        
+        if (batch == 0) & True:
+            out = Image.fromarray(np.uint8(enhance), mode='RGB')  # output of SRCNN
+            out.save('%s/%s.png' % (args.saveDir,epoch))
         # crop to size output
         im_gt = im_gt[:enhance.shape[0],:enhance.shape[1],:]
         psnr, ssim = psnr_ssim_from_sci(enhance, im_gt)
@@ -130,14 +134,14 @@ def train(args):
     # hyper parameter
     no_layer_D =  3
     no_D = 2
-    lamda = 10
+    lamda = 1 # 10
     # define model
     if args.model_name == 'Normal':
-        Generator = model.get_generator(ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
+        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
         Discriminator = model.get_discriminator(input_nc = 6, ndf=64, n_layers_D = no_layer_D, gpu_ids=[args.gpu])
         
     elif args.model_name == 'Enhance':
-        Generator = model.get_generator(ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
+        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
         Discriminator = model.get_discriminator(input_nc = 6,ndf=64, n_layers_D = no_layer_D, gpu_ids=[args.gpu])
     else:
         raise Exception("The model name is wrong/ not supported yet: {}".format(args.model_name))
@@ -152,7 +156,7 @@ def train(args):
     print(log)
     save.save_log(log)
     
-    save.write_csv_header('mode', 'epoch', 'lr', 'batch_loss', 'time(min)', 'val_psnr', 'val_ssim')
+    save.write_csv_header('mode', 'epoch', 'lr', 'sum_loss','loss_D','loss_G','time(min)', 'val_psnr', 'val_ssim')
     last_epoch = 0
 
     if args.multi == True:
@@ -187,7 +191,8 @@ def train(args):
     lr_cheduler = LrScheduler(args.lr, 'inv', args.lrDecay)
 
     # log var
-    avg_loss = AverageMeter()
+    avg_loss_D = AverageMeter()
+    avg_loss_G = AverageMeter()
     avg_time = AverageMeter()
     avg_time.reset()
 
@@ -198,17 +203,21 @@ def train(args):
 
     for epoch in range(start_epoch, args.epochs):
         start = time.time()
-        # learning_rate = lr_cheduler.adjust_lr(epoch, optimizer)
-        learning_rate = args.lr
-        avg_loss.reset()
+        learning_rate = lr_cheduler.adjust_lr(epoch, optim_G)
+        learning_rate = lr_cheduler.adjust_lr(epoch, optim_D)
+        # learning_rate = args.lr
+        avg_loss_D.reset()
+        avg_loss_G.reset()
         for batch, (hazy_imgs, gt_imgs, names) in enumerate(dataloader):
             hazy_imgs = Variable(hazy_imgs.cuda())
             gt_imgs = Variable(gt_imgs.cuda())
-
-            Discriminator.zero_grad()
-            Generator.zero_grad()
-
+            
+            # Forward
             fake_imgs ,enhance_imgs = Generator(hazy_imgs)
+            
+            # Update discriminator
+            set_requires_grad(Discriminator,True) # Enable update D 
+            optim_D.zero_grad()
 
             # Fake images
             input_concat = torch.cat((hazy_imgs, fake_imgs.detach()), dim=1)
@@ -216,9 +225,17 @@ def train(args):
             loss_D_fake = lossGAN(pred_fake,False)
 
             # Real Detection
-            input_concat = torch.cat((hazy_imgs, gt_imgs.detach()), dim=1)
+            input_concat = torch.cat((hazy_imgs, gt_imgs), dim=1)
             pred_real = Discriminator.forward(input_concat)
             loss_D_real = lossGAN(pred_real,True)
+            
+            total_loss_D = loss_D_fake + loss_D_real
+            total_loss_D.backward()
+            optim_D.step()
+
+            # Update discriminator
+            set_requires_grad(Discriminator,False) # Disable update D 
+            optim_G.zero_grad()
 
             # Loss Generator GAN
             pred_fake_G = Discriminator.forward(torch.cat((hazy_imgs, fake_imgs), dim=1))
@@ -226,9 +243,10 @@ def train(args):
 
             # Feature matching loss
             loss_G_GAN_Feat = 0
-            pred_fake = Discriminator.forward(torch.cat((hazy_imgs, fake_imgs), dim=1))
+
 
             if False:
+                pred_fake = Discriminator.forward(torch.cat((hazy_imgs, fake_imgs), dim=1))
                 feat_weights = 4.0 / (no_layer_D + 1)
                 D_weights = 1.0 / no_D
                 for i in range(no_D):
@@ -239,33 +257,35 @@ def train(args):
 
             # VGG feature matching loss
             loss_G_VGG = 0
-            if False:
+            if True:
                 loss_G_VGG = lossVGG(enhance_imgs, gt_imgs) * lamda
             loss_G_L2 = lossMse(enhance_imgs, gt_imgs)
 
-            total_loss = (loss_G_GAN + loss_D_real+ loss_D_fake)+ loss_G_GAN_Feat + loss_G_VGG + loss_G_L2
-            total_loss.backward()
-            optim_D.step()
+            total_loss_G = loss_G_GAN + loss_G_GAN_Feat + loss_G_VGG + loss_G_L2
+            total_loss_G.backward()
             optim_G.step()
-            avg_loss.update(total_loss.data.item(), args.batchSize)
+            avg_loss_D.update(total_loss_D.data.item() , args.batchSize)
+            avg_loss_G.update(total_loss_G.data.item() , args.batchSize)
         end = time.time()
         epoch_time = (end - start)
         avg_time.update(epoch_time)
-        log = "[{} / {}] \tLearning_rate: {:.5f} \tTotal_loss:{:.4f} \tAvg_loss: {:.4f} \tTotal_time: {:.4f} min \tBatch_time: {:.4f} sec".format(
-            epoch + 1, args.epochs, learning_rate, avg_loss.sum(), avg_loss.avg(), avg_time.sum() / 60, avg_time.avg())
+        log = "[{} / {}] \tLearning_rate: {:.5f} \tTotal_loss:{:.4f} \tAvg_loss_D: {:.4f} \tAvg_loss_G: {:.4f} \tTotal_time: {:.4f} min \tBatch_time: {:.4f} sec".format(
+            epoch + 1, args.epochs, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),avg_loss_G.avg(), avg_time.sum() / 60, avg_time.avg())
         print(log)
         save.save_log(log)
-        save.log_csv('train', epoch + 1, learning_rate, avg_loss.sum(), avg_time.sum() / 60)
-        save.write_tf_board('train_loss',avg_loss.sum(),epoch+1)
+        save.log_csv('train', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),avg_loss_G.avg(), avg_time.sum() / 60)
+        save.write_tf_board('sum_loss',avg_loss_D.sum() + avg_loss_G.sum(),epoch+1)
+        save.write_tf_board('avg_loss_D',avg_loss_D.avg(),epoch+1)
+        save.write_tf_board('avg_loss_G',avg_loss_G.avg(),epoch+1)
         if (epoch + 1) % args.period == 0:
             Generator.eval()
-            avg_psnr, avg_ssim = test(Generator, testdataloader)
+            avg_psnr, avg_ssim = test(Generator, testdataloader,epoch+1)
             Generator.train()
             log = "*** [{} / {}] \tVal PSNR: {:.4f} \tVal SSIM: {:.4f} ".format(epoch + 1, args.epochs, avg_psnr,
                                                                                 avg_ssim)
             print(log)
             save.save_log(log)
-            save.log_csv('test', epoch + 1, learning_rate, avg_loss.sum(), avg_time.sum() / 60, avg_psnr, avg_ssim)
+            save.log_csv('test', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),avg_loss_G.avg(), avg_time.sum() / 60, avg_psnr, avg_ssim)
             save.save_model(Generator,Discriminator, epoch, avg_psnr)
             save.write_tf_board('val_psnr', avg_psnr, epoch+1)
 
