@@ -10,7 +10,7 @@ import numpy as np
 import tensorboardX
 from skimage import color
 from skimage import io
-import skvideo.measure.niqe as image_niqe
+from niqe import niqe as image_niqe
 
 
 class SaveData():
@@ -139,7 +139,7 @@ def unnormalize(img):
     # pdb.set_trace()
     nor = out*255.0
     nor = nor.clip(0, 255)
-    nor = nor.transpose(1, 2, 0)#[..., ::-1]
+    nor = nor.transpose(1,2, 0)#[..., ::-1]
     return nor
 
 
@@ -183,4 +183,5 @@ def niqe_from_skvideo(img):
     img1 = np.ndarray((img1.size[1], img1.size[0], 3), 'u1', img1.tobytes())
     # get channel Y
     img1 = img1[:, :, 0]
-    return image_niqe(img1)
+    return image_niqe(img1)[0]
+

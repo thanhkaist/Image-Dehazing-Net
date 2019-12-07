@@ -26,9 +26,9 @@ def get_train_dataloader(name, batch_size):
 
 def get_test_dataloader(name, batch_size=1):
     if name == 'Indoor':
-        dataset = ImageFolder('data/IndoorTrain', multi_scale=False, need_patch=False, augment=False)
+        dataset = ImageFolder('data/IndoorTest', multi_scale=False, need_patch=False, augment=False,gt=False)
     elif name == 'Outdoor':
-        dataset = ImageFolder('data/OutdoorTrain', multi_scale=False, need_patch=False, augment=False)
+        dataset = ImageFolder('data/OutdoorTest', multi_scale=False, need_patch=False, augment=False,gt=False)
     else:
         raise Exception('Dataset is not supported')
 
@@ -40,13 +40,14 @@ def get_test_dataloader(name, batch_size=1):
 
 class ImageFolder(data.DataLoader):
 
-    def __init__(self, name='IndoorTrain', multi_scale=False, need_patch=False, augment=False,
+    def __init__(self, name='IndoorTrain', multi_scale=False, need_patch=False, augment=False,gt= True,
                  transform=transforms.Compose([transforms.ToTensor()])):
+        self.have_gt = gt
         self.dirHazy = name + 'Hazy/'
         self.dirGT = name + 'GT/'
         self.transform = transform
         self.crop = need_patch
-        self.crop_size = 512
+        self.crop_size = 256
         self.rotation = augment
         self.multiscale = multi_scale
         self.fileList = os.listdir(self.dirHazy)
@@ -55,16 +56,19 @@ class ImageFolder(data.DataLoader):
     def __getitem__(self, idx):
         hazy, gt = self.getFileName(idx)
         hazy = Image.open(hazy).convert('RGB')
-        gt = Image.open(gt).convert('RGB')
+        if self.have_gt:
+            gt = Image.open(gt).convert('RGB')
 
         if self.rotation:
             degree = random.choice([0, 90, 180, 270])
             hazy = transforms.functional.rotate(hazy, degree)
-            gt = transforms.functional.rotate(gt, degree)
+            if self.have_gt:
+                gt = transforms.functional.rotate(gt, degree)
 
         if self.transform:
             hazy = self.transform(hazy)
-            gt = self.transform(gt)
+            if self.have_gt:
+                gt = self.transform(gt)
 
         if self.crop:
             W = hazy.size()[1]
@@ -74,21 +78,29 @@ class ImageFolder(data.DataLoader):
             Hs = np.random.randint(0, H - self.crop_size - 1, 1)[0]
 
             hazy = hazy[:, Ws:Ws + self.crop_size, Hs:Hs + self.crop_size]
-            gt = gt[:, Ws:Ws + self.crop_size, Hs:Hs + self.crop_size]
+            if self.have_gt:
+                gt = gt[:, Ws:Ws + self.crop_size, Hs:Hs + self.crop_size]
 
         if self.multiscale:
-            H = gt.size()[1]
-            W = gt.size()[2]
+            W = hazy.size()[1]
+            H = hazy.size()[2]
             hazy_s1 = transforms.ToPILImage()(hazy)
-            gt_s1 = transforms.ToPILImage()(gt)
-            hazy_s2 = transforms.ToTensor()(transforms.Resize([H // 2, W // 2])(hazy_s1)).mul(1.0)
-            gt_s2 = transforms.ToTensor()(transforms.Resize([H // 2, W // 2])(gt_s1)).mul(1.0)
+            if self.have_gt:
+                gt_s1 = transforms.ToPILImage()(gt)
+            hazy_s2 = transforms.ToTensor()(transforms.Resize([W // 2, H // 2])(hazy_s1)).mul(1.0)
+            if self.have_gt:
+                gt_s2 = transforms.ToTensor()(transforms.Resize([W // 2, H // 2])(gt_s1)).mul(1.0)
             hazy_s1 = transforms.ToTensor()(hazy_s1).mul(1.0)
-            gt_s1 = transforms.ToTensor()(gt_s1).mul(1.0)
-
+            if self.have_gt:
+                gt_s1 = transforms.ToTensor()(gt_s1).mul(1.0)
+            if not self.have_gt:
+                gt_s1=torch.tensor([0])
+                gt_s2=torch.tensor([0])
             return {'hazy_s1': hazy_s1, 'hazy_s2': hazy_s2,
                     'gt_s1': gt_s1, 'gt_s2': gt_s2, }, self.fileList[idx]
         else:
+            if not self.have_gt:
+                gt = torch.tensor([0])
             return hazy, gt,self.fileList[idx]
 
     def __len__(self):

@@ -222,7 +222,7 @@ class Gen1Global(nn.Module):
         ### downsample
         for i in range(n_downsampling):
             mult = 2**i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=4, stride=2, padding=1),
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=4, stride=2, padding=1),     # (W- F+ 2P)/S +1
                       norm_layer(ngf * mult * 2), activation]
 
         ### resnet blocks
@@ -233,7 +233,7 @@ class Gen1Global(nn.Module):
         ### upsample         
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1), # 
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=4, stride=2, padding=1), #, output_padding=1
                        norm_layer(int(ngf * mult / 2)), activation]
         model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.ReLU()]
         self.model = nn.Sequential(*model)
@@ -262,7 +262,7 @@ class Gen2Local(nn.Module):
             ngf_global = ngf * (2**(n_local_enhancers-n)) # 32
             model_downsample = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf_global, kernel_size=7, padding=0), 
                                 norm_layer(ngf_global), nn.ReLU(True),
-                                nn.Conv2d(ngf_global, ngf_global * 2, kernel_size=4, stride=2, padding=1), 
+                                nn.Conv2d(ngf_global, ngf_global * 2, kernel_size=4, stride=2, padding=1),
                                 norm_layer(ngf_global * 2), nn.ReLU(True)]  # 64
             ### residual blocks
             model_upsample = []
@@ -270,7 +270,7 @@ class Gen2Local(nn.Module):
                 model_upsample += [ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer)]
 
             ### upsample
-            model_upsample += [nn.ConvTranspose2d(ngf_global * 2, ngf_global, kernel_size=3, stride=2, padding=1,output_padding=1), # , output_padding=1
+            model_upsample += [nn.ConvTranspose2d(ngf_global * 2, ngf_global, kernel_size=4, stride=2, padding=1), # , output_padding=1
                                norm_layer(ngf_global), nn.ReLU(True)] # 32     
 
             ### final convolution
@@ -280,7 +280,7 @@ class Gen2Local(nn.Module):
             setattr(self, 'model'+str(n)+'_1', nn.Sequential(*model_downsample))
             setattr(self, 'model'+str(n)+'_2', nn.Sequential(*model_upsample))                  
         
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
+        self.downsample = nn.AvgPool2d(4, stride=2, padding=[1, 1])
         if self.enhance:
             self.dehaze=EnhancerBlock()
             self.dehaze2=EnhancerBlock()
@@ -293,7 +293,6 @@ class Gen2Local(nn.Module):
         
         ### output at coarest level
         output_prev = self.model(input_downsampled[-1]) #[x1] => f1
-        
         ### build up one layer at a time
         for n_local_enhancers in range(1, self.n_local_enhancers+1):
             model_downsample = getattr(self, 'model'+str(n_local_enhancers)+'_1')

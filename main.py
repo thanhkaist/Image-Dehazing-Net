@@ -40,10 +40,12 @@ parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 parser.add_argument('--batchSize', type=int, default=2, help='input batch size for training')
 parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
 parser.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
-parser.add_argument('--lrDecay', type=int, default=300, help='epoch of half lr')
+parser.add_argument('--lrDecay', type=int, default=500, help='epoch of half lr')
 parser.add_argument('--decayType', default='inv', help='lr decay function')
 parser.add_argument('--lossType', default='L1', help='Loss type')
 parser.add_argument('--lamda', type= float, default=0.2,help= 'Hyper lamda')
+parser.add_argument('--alpha', type= float, default=0.2,help= 'Hyper alpha')
+parser.add_argument('--crop', default=False,help= 'Drop test image')
 # GPU training
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
 parser.add_argument('--multi', type=int, default=0, help='multi gpu')
@@ -81,19 +83,24 @@ class LrScheduler():
         return lr
 
 
-def test(model, dataloader,epoch):
+def test(model, dataloader,epoch, metric=0):
+    # 1 : PSNR, SSIM
+    # 0 : niqe on y channel
     avg_psnr = 0
     avg_ssim = 0
-    crop = True
-    no_test = 5
+    avg_niqe =0
+    crop = args.crop
+    no_test = 2
     count = 0
+    have_gt = metric
     if crop:
         center_crop = 256*4
+
     for batch, (im_hazy, im_gt, im_name) in enumerate(dataloader):
         with torch.no_grad():
             im_hazy = Variable(im_hazy.cuda(), volatile=False)
-            im_gt = Variable(im_gt.cuda())
-            
+            if have_gt:
+                im_gt = Variable(im_gt.cuda())
             W = im_hazy.size()[2]
             H = im_hazy.size()[3]
             if crop:
@@ -101,33 +108,44 @@ def test(model, dataloader,epoch):
                 Hs = H //2
 
                 im_hazy = im_hazy[:,:, (Ws - center_crop//2):(Ws + center_crop//2), (Hs - center_crop//2):(Hs + center_crop//2)]
-                im_gt = im_gt[:,:, (Ws - center_crop//2):(Ws + center_crop//2), (Hs - center_crop//2):(Hs + center_crop//2)]
+                if have_gt:
+                    im_gt = im_gt[:,:, (Ws - center_crop//2):(Ws + center_crop//2), (Hs - center_crop//2):(Hs + center_crop//2)]
             else:
-                if W % 2:
-                    im_hazy = im_hazy[:,:, :W-1, :]
-                    im_gt = im_gt[:,:, :W-1, :]
-                if H % 2:
-                    im_hazy = im_hazy[:,:, :, :(H-1)]
-                    im_gt = im_gt[:,:, :, :(H-1)]
+                if W % 32:
+                    Wr = W % 32
+                    im_hazy = im_hazy[:,:, :W-Wr, :]
+                    if have_gt:
+                        im_gt = im_gt[:,:, :W-Wr, :]
+                if H % 32:
+                    Hr = H % 32
+                    im_hazy = im_hazy[:,:, :, :(H-Hr)]
+                    if have_gt:
+                        im_gt = im_gt[:,:, :, :(H-Hr)]
     
             output, enhance = model(im_hazy)
 
         enhance = unnormalize(enhance[0])
-        im_gt = unnormalize(im_gt[0])
+        if have_gt:
+            im_gt = unnormalize(im_gt[0])
         
         if (batch == 0) & True:
             out = Image.fromarray(np.uint8(enhance), mode='RGB')  # output of SRCNN
             out.save('%s/%s.png' % (args.saveDir,epoch))
         # crop to size output
-        im_gt = im_gt[:enhance.shape[0],:enhance.shape[1],:]
-        psnr, ssim = psnr_ssim_from_sci(enhance, im_gt)
-        avg_psnr += psnr
-        avg_ssim += ssim
+        if have_gt:
+            im_gt = im_gt[:enhance.shape[0],:enhance.shape[1],:]
+            psnr, ssim = psnr_ssim_from_sci(enhance, im_gt)
+            avg_psnr += psnr
+            avg_ssim += ssim
+        else:
+            avg_niqe += niqe_from_skvideo(enhance)
         count = count +1 
         if count == no_test:
             break
-
-    return avg_psnr / no_test, avg_ssim / no_test
+    if have_gt:
+        return avg_psnr / no_test, avg_ssim / no_test
+    else:
+        return avg_niqe/no_test
 
 
 def train(args):
@@ -135,6 +153,8 @@ def train(args):
     no_layer_D =  3
     no_D = 2
     lamda = args.lamda # 10
+    alpha = args.alpha
+    have_gt = 0
     # define model
     if args.model_name == 'Normal':
         Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
@@ -172,8 +192,8 @@ def train(args):
         Generator, Discriminator,last_epoch = save.load_model(Generator,Discriminator)
 
     # dataloader
-    dataloader = get_train_dataloader('Indoor', args.batchSize)
-    testdataloader = get_test_dataloader('Indoor', 1)
+    dataloader = get_train_dataloader(args.trainset, args.batchSize)
+    testdataloader = get_test_dataloader(args.testset, 1)
     start_epoch = last_epoch
 
     # load function
@@ -229,7 +249,7 @@ def train(args):
             pred_real = Discriminator.forward(input_concat)
             loss_D_real = lossGAN(pred_real,True)
             
-            total_loss_D = loss_D_fake + loss_D_real
+            total_loss_D = alpha*(loss_D_fake + loss_D_real)
             total_loss_D.backward()
             optim_D.step()
 
@@ -243,9 +263,7 @@ def train(args):
 
             # Feature matching loss
             loss_G_GAN_Feat = 0
-
-
-            if True:
+            if False:
                 pred_fake = Discriminator.forward(torch.cat((hazy_imgs, fake_imgs), dim=1))
                 feat_weights = 4.0 / (no_layer_D + 1)
                 D_weights = 1.0 / no_D
@@ -261,7 +279,7 @@ def train(args):
                 loss_G_VGG = lossVGG(enhance_imgs, gt_imgs) * lamda
             loss_G_L2 = lossMse(enhance_imgs, gt_imgs)
 
-            total_loss_G = loss_G_GAN + loss_G_GAN_Feat + loss_G_VGG + loss_G_L2
+            total_loss_G = alpha*loss_G_GAN + loss_G_GAN_Feat + loss_G_VGG + loss_G_L2
             total_loss_G.backward()
             optim_G.step()
             avg_loss_D.update(total_loss_D.data.item() , args.batchSize)
@@ -277,17 +295,29 @@ def train(args):
         save.write_tf_board('sum_loss',avg_loss_D.sum() + avg_loss_G.sum(),epoch+1)
         save.write_tf_board('avg_loss_D',avg_loss_D.avg(),epoch+1)
         save.write_tf_board('avg_loss_G',avg_loss_G.avg(),epoch+1)
-        if (epoch + 1) % args.period == 0:
+        if (epoch + 1) % args.period == 0 and (epoch + 1) >=1500:
             Generator.eval()
-            avg_psnr, avg_ssim = test(Generator, testdataloader,epoch+1)
+            if have_gt:
+                avg_psnr, avg_ssim = test(Generator, testdataloader,epoch+1,1)
+            else:
+                avg_niqe = test(Generator, testdataloader,epoch+1,0)
             Generator.train()
-            log = "*** [{} / {}] \tVal PSNR: {:.4f} \tVal SSIM: {:.4f} ".format(epoch + 1, args.epochs, avg_psnr,
+            if have_gt:
+                log = "*** [{} / {}] \tVal PSNR: {:.4f} \tVal SSIM: {:.4f} ".format(epoch + 1, args.epochs, avg_psnr,
                                                                                 avg_ssim)
-            print(log)
-            save.save_log(log)
-            save.log_csv('test', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),avg_loss_G.avg(), avg_time.sum() / 60, avg_psnr, avg_ssim)
-            save.save_model(Generator,Discriminator, epoch, avg_psnr)
-            save.write_tf_board('val_psnr', avg_psnr, epoch+1)
+                print(log)
+                save.save_log(log)
+                save.log_csv('test', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),avg_loss_G.avg(), avg_time.sum() / 60, avg_psnr, avg_ssim)
+                save.save_model(Generator,Discriminator, epoch, avg_psnr)
+                save.write_tf_board('val_psnr', avg_psnr, epoch+1)
+            else:
+                log = "*** [{} / {}] \tVal NIQE: {:.4f}  ".format(epoch + 1, args.epochs, avg_niqe)
+                print(log)
+                save.save_log(log)
+                save.log_csv('test', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),
+                             avg_loss_G.avg(), avg_time.sum() / 60, avg_niqe)
+                save.save_model(Generator, Discriminator, epoch, 100 -avg_niqe)
+                save.write_tf_board('val_niqe', avg_niqe, epoch + 1)
 
 
 if __name__ == '__main__':

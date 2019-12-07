@@ -52,9 +52,11 @@ def test(args):
 
     avg_psnr = 0
     avg_ssim = 0
+    avg_niqe = 0
     avg_time = 0
     count = 0
     crop = False
+    have_gt = False # True : use PSNR, SSIM instead of NIQE
     
     if crop:
         center_crop = 256
@@ -68,8 +70,8 @@ def test(args):
 
         with torch.no_grad():
             im_hazy = Variable(im_hazy.cuda(), volatile=False)
-            im_gt = Variable(im_gt.cuda())
-
+            if have_gt:
+                im_gt = Variable(im_gt.cuda())
             W = im_hazy.size()[2]
             H = im_hazy.size()[3]
             if crop:
@@ -78,15 +80,20 @@ def test(args):
 
                 im_hazy = im_hazy[:, :, (Ws - center_crop // 2):(Ws + center_crop // 2),
                           (Hs - center_crop // 2):(Hs + center_crop // 2)]
-                im_gt = im_gt[:, :, (Ws - center_crop // 2):(Ws + center_crop // 2),
-                        (Hs - center_crop // 2):(Hs + center_crop // 2)]
+                if have_gt:
+                    im_gt = im_gt[:, :, (Ws - center_crop // 2):(Ws + center_crop // 2),
+                            (Hs - center_crop // 2):(Hs + center_crop // 2)]
             else:
-                if W % 2:
-                    im_hazy = im_hazy[:, :, :W - 1, :]
-                    im_gt = im_gt[:, :, :W - 1, :]
-                if H % 2:
-                    im_hazy = im_hazy[:, :, :, :(H - 1)]
-                    im_gt = im_gt[:, :, :, :(H - 1)]
+                if W % 32:
+                    Wr = W % 32
+                    im_hazy = im_hazy[:, :, :W - Wr, :]
+                    if have_gt:
+                        im_gt = im_gt[:, :, :W - Wr, :]
+                if H % 32:
+                    Hr = H % 32
+                    im_hazy = im_hazy[:, :, :, :(H - Hr)]
+                    if have_gt:
+                        im_gt = im_gt[:, :, :, :(H - Hr)]
 
             begin_time = time.time()
             output, enhance = Generator(im_hazy)
@@ -95,25 +102,30 @@ def test(args):
             avg_time += (end_time - begin_time)
 
         enhance = unnormalize(enhance[0])
-        #import pdb;
-        # pdb.set_trace()
 
         out = Image.fromarray(np.uint8(enhance), mode='RGB')  # output of SRCNN
         name = im_name[0][0:-4] + '.png'
         out.save('val/%s/%s/%s' % (args.model_name, args.dataset, name))
 
         # =========== Target Image ===============
-        im_gt = unnormalize(im_gt[0])
+        if have_gt:
+            im_gt = unnormalize(im_gt[0])
         # crop to size output
-        im_gt = im_gt[:enhance.shape[0], :enhance.shape[1], :]
-        psnr, ssim = psnr_ssim_from_sci(enhance, im_gt)
-        print('%d : %s PSNR/SSIM: %.4f/%.4f ' % (count,name, psnr, ssim))
+            im_gt = im_gt[:enhance.shape[0], :enhance.shape[1], :]
+            psnr, ssim = psnr_ssim_from_sci(enhance, im_gt)
+            print('%d : %s PSNR/SSIM: %.4f/%.4f ' % (count,name, psnr, ssim))
 
-        avg_ssim += ssim
-        avg_psnr += psnr
-
-    print('AVG PSNR/AVG SSIM : %.4f/%.4f ' % (
-        avg_psnr / len(testdataloader.dataset), avg_ssim / len(testdataloader.dataset)))
+            avg_ssim += ssim
+            avg_psnr += psnr
+        else:
+            im_niqe = niqe_from_skvideo(enhance)
+            print('%d : %s NIQE: %.4f ' % (count, name, im_niqe))
+            avg_niqe += im_niqe
+    if have_gt:
+        print('AVG PSNR/AVG SSIM : %.4f/%.4f ' % (
+            avg_psnr / len(testdataloader.dataset), avg_ssim / len(testdataloader.dataset)))
+    else:
+        print('AVG NIQE : %.4f' % (avg_niqe / len(testdataloader.dataset)))
     print('Avg pred time per image: %.4f' % (avg_time / len(testdataloader.dataset)))
 
 
