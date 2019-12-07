@@ -43,16 +43,16 @@ parser.add_argument('--epochs', type=int, default=500, help='number of epochs to
 parser.add_argument('--lrDecay', type=int, default=300, help='epoch of half lr')
 parser.add_argument('--decayType', default='inv', help='lr decay function')
 parser.add_argument('--lossType', default='L1', help='Loss type')
-
+parser.add_argument('--lamda', type= float, default=0.2,help= 'Hyper lamda')
 # GPU training
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
 parser.add_argument('--multi', type=int, default=0, help='multi gpu')
 args = parser.parse_args()
 
-if args.gpu == 0:
+if args.gpu == 1:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-elif args.gpu == 1:
+elif args.gpu == 0:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -134,7 +134,7 @@ def train(args):
     # hyper parameter
     no_layer_D =  3
     no_D = 2
-    lamda = 1 # 10
+    lamda = args.lamda # 10
     # define model
     if args.model_name == 'Normal':
         Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
@@ -245,7 +245,7 @@ def train(args):
             loss_G_GAN_Feat = 0
 
 
-            if False:
+            if True:
                 pred_fake = Discriminator.forward(torch.cat((hazy_imgs, fake_imgs), dim=1))
                 feat_weights = 4.0 / (no_layer_D + 1)
                 D_weights = 1.0 / no_D

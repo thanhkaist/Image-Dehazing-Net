@@ -8,6 +8,9 @@ from skimage.measure import compare_psnr as psnr
 from PIL import Image
 import numpy as np
 import tensorboardX
+from skimage import color
+from skimage import io
+import skvideo.measure.niqe as image_niqe
 
 
 class SaveData():
@@ -173,3 +176,11 @@ def psnr_ssim_from_sci(img1, img2, padding=4,y_channels = False):
         ps = psnr(img1,img2,255)
         ss = ssim(img1,img2,multichannel=True)
     return (ps, ss)
+
+def niqe_from_skvideo(img):
+    img1 = Image.fromarray(np.uint8(img), mode='RGB')
+    img1 = img1.convert('YCbCr')
+    img1 = np.ndarray((img1.size[1], img1.size[0], 3), 'u1', img1.tobytes())
+    # get channel Y
+    img1 = img1[:, :, 0]
+    return image_niqe(img1)

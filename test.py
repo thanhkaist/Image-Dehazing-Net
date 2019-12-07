@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(description='Super Resolution')
 parser.add_argument('model_name', choices=['Normal', 'Enhance'], help='model to select')
 parser.add_argument('--dataset', type=str, default='Indoor')
 
-parser.add_argument('--pretrained_model', default='result1/Net1/model/Gen_best.pt', help='save result')
+parser.add_argument('--pretrained_model', default='result900/Net1/model/Gen_best.pt', help='save result') # Gen_best Gen_lastest
 
 parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
@@ -37,10 +37,10 @@ def test(args):
     # define model
     if args.model_name == 'Normal':
         Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
-        Discriminator = model.get_discriminator(True,input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
+        Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
 
     elif args.model_name == 'Enhance':
-        Generator = model.get_generator(ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
+        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
         Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
     else:
         raise Exception("The model name is wrong/ not supported yet: {}".format(args.model_name))
@@ -107,7 +107,7 @@ def test(args):
         # crop to size output
         im_gt = im_gt[:enhance.shape[0], :enhance.shape[1], :]
         psnr, ssim = psnr_ssim_from_sci(enhance, im_gt)
-        print('%d_img PSNR/SSIM: %.4f/%.4f ' % (count, psnr, ssim))
+        print('%d : %s PSNR/SSIM: %.4f/%.4f ' % (count,name, psnr, ssim))
 
         avg_ssim += ssim
         avg_psnr += psnr
