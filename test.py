@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(description='Super Resolution')
 parser.add_argument('model_name', choices=['Normal', 'Enhance'], help='model to select')
 parser.add_argument('--dataset', type=str, default='Indoor')
 
-parser.add_argument('--pretrained_model', default='result900/Net1/model/Gen_best.pt', help='save result') # Gen_best Gen_lastest
+parser.add_argument('--pretrained_model', default='resultIn1/Net1/model/Gen_1739.pt', help='save result') # Gen_best Gen_lastest
 
 parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
