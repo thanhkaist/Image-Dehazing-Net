@@ -46,15 +46,16 @@ parser.add_argument('--lossType', default='L1', help='Loss type')
 parser.add_argument('--lamda', type= float, default=0.2,help= 'Hyper lamda')
 parser.add_argument('--alpha', type= float, default=0.2,help= 'Hyper alpha')
 parser.add_argument('--crop', default=False,help= 'Drop test image')
+parser.add_argument('--resblock', type=int, default=6, help='resblock')
 # GPU training
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
 parser.add_argument('--multi', type=int, default=0, help='multi gpu')
 args = parser.parse_args()
 
-if args.gpu == 1:
+if args.gpu == 0:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-elif args.gpu == 0:
+elif args.gpu == 1:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -90,7 +91,7 @@ def test(model, dataloader,epoch, metric=0):
     avg_ssim = 0
     avg_niqe =0
     crop = args.crop
-    no_test = 2
+    no_test = 5
     count = 0
     have_gt = metric
     if crop:
@@ -128,9 +129,10 @@ def test(model, dataloader,epoch, metric=0):
         if have_gt:
             im_gt = unnormalize(im_gt[0])
         
-        if (batch == 0) & True:
+        if (batch == 0) and True:
             out = Image.fromarray(np.uint8(enhance), mode='RGB')  # output of SRCNN
             out.save('%s/%s.png' % (args.saveDir,epoch))
+            #break # just save 1 image for evaluating
         # crop to size output
         if have_gt:
             im_gt = im_gt[:enhance.shape[0],:enhance.shape[1],:]
@@ -155,14 +157,16 @@ def train(args):
     lamda = args.lamda # 10
     alpha = args.alpha
     have_gt = 0
+    gpu_id = 0
+    no_epoch_eval = 500
     # define model
     if args.model_name == 'Normal':
-        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
-        Discriminator = model.get_discriminator(input_nc = 6, ndf=64, n_layers_D = no_layer_D, gpu_ids=[args.gpu])
+        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[gpu_id] )
+        Discriminator = model.get_discriminator(input_nc = 6, ndf=64, n_layers_D = no_layer_D, gpu_ids=[gpu_id])
         
     elif args.model_name == 'Enhance':
-        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu] )
-        Discriminator = model.get_discriminator(input_nc = 6,ndf=64, n_layers_D = no_layer_D, gpu_ids=[args.gpu])
+        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[gpu_id] )
+        Discriminator = model.get_discriminator(input_nc = 6,ndf=64, n_layers_D = no_layer_D, gpu_ids=[gpu_id])
     else:
         raise Exception("The model name is wrong/ not supported yet: {}".format(args.model_name))
 
@@ -201,7 +205,7 @@ def train(args):
     lossFeat = nn.L1Loss()
     lossMse = nn.MSELoss()
     if True:
-        lossVGG = model.VGGLoss([args.gpu])
+        lossVGG = model.VGGLoss([gpu_id])
 
     loss_names = ['G_GAN', 'G_GAN_Feat', 'G_VGG', 'D_real', 'D_fake', 'G_L2']
 
@@ -295,7 +299,7 @@ def train(args):
         save.write_tf_board('sum_loss',avg_loss_D.sum() + avg_loss_G.sum(),epoch+1)
         save.write_tf_board('avg_loss_D',avg_loss_D.avg(),epoch+1)
         save.write_tf_board('avg_loss_G',avg_loss_G.avg(),epoch+1)
-        if (epoch + 1) % args.period == 0 and (epoch + 1) >=1500:
+        if (epoch + 1) % args.period == 0 and (epoch + 1) >=no_epoch_eval:
             Generator.eval()
             if have_gt:
                 avg_psnr, avg_ssim = test(Generator, testdataloader,epoch+1,1)
@@ -308,7 +312,7 @@ def train(args):
                 print(log)
                 save.save_log(log)
                 save.log_csv('test', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),avg_loss_G.avg(), avg_time.sum() / 60, avg_psnr, avg_ssim)
-                save.save_model(Generator,Discriminator, epoch, avg_psnr)
+                save.save_model(Generator,Discriminator, epoch+1, avg_psnr)
                 save.write_tf_board('val_psnr', avg_psnr, epoch+1)
             else:
                 log = "*** [{} / {}] \tVal NIQE: {:.4f}  ".format(epoch + 1, args.epochs, avg_niqe)
@@ -316,7 +320,7 @@ def train(args):
                 save.save_log(log)
                 save.log_csv('test', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),
                              avg_loss_G.avg(), avg_time.sum() / 60, avg_niqe)
-                save.save_model(Generator, Discriminator, epoch, 100 -avg_niqe)
+                save.save_model(Generator, Discriminator, epoch+1, 100 -avg_niqe)
                 save.write_tf_board('val_niqe', avg_niqe, epoch + 1)
 
 

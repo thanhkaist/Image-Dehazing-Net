@@ -47,7 +47,7 @@ class ImageFolder(data.DataLoader):
         self.dirGT = name + 'GT/'
         self.transform = transform
         self.crop = need_patch
-        self.crop_size = 256
+        self.crop_size = 512
         self.rotation = augment
         self.multiscale = multi_scale
         self.fileList = os.listdir(self.dirHazy)

@@ -14,11 +14,11 @@ parser = argparse.ArgumentParser(description='Super Resolution')
 parser.add_argument('model_name', choices=['Normal', 'Enhance'], help='model to select')
 parser.add_argument('--dataset', type=str, default='Indoor')
 
-parser.add_argument('--pretrained_model', default='resultIn1/Net1/model/Gen_1739.pt', help='save result') # Gen_best Gen_lastest
+parser.add_argument('--pretrained_model', default='resultOut3/Net1/model/Gen_lastest.pt', help='save result') # Gen_best Gen_lastest
 
 parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
-
+parser.add_argument('--resblock', type=int, default=3, help='resblock')
 args = parser.parse_args()
 
 if args.gpu == 1:
@@ -36,11 +36,11 @@ def test(args):
     lamda = 10
     # define model
     if args.model_name == 'Normal':
-        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
+        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[args.gpu])
         Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
 
     elif args.model_name == 'Enhance':
-        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[args.gpu])
+        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[args.gpu])
         Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
     else:
         raise Exception("The model name is wrong/ not supported yet: {}".format(args.model_name))

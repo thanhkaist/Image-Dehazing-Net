@@ -6,6 +6,8 @@ import numpy as np
 from torch.autograd import Variable
 import math
 
+# Calculate padding
+# W = (W - F +2*P) / S  + 1
 # Model related functions
 
 def set_requires_grad(nets, requires_grad=False):
@@ -42,9 +44,9 @@ def print_network(net):
     print(net)
     print('Total number of parameters: %d' % num_params)
     
-def get_generator( enhance = False,ngf=32, n_downsample_global=3, n_blocks_global=9, gpu_ids=[]):
+def get_generator( enhance = False,ngf=32, n_downsample_global=3, n_blocks_global=3, gpu_ids=[]):
     netG = Gen2Local(3, 3,enhance, ngf, n_downsample_global, n_blocks_global)
-    #print(netG)
+    print(netG)
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())   
         netG.cuda(gpu_ids[0])
@@ -373,7 +375,7 @@ class MultiscaleDiscriminator(nn.Module):
             else:
                 setattr(self, 'layer'+str(i), netD.model)
 
-        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
+        self.downsample = nn.AvgPool2d(4, stride=2, padding=[1, 1]) #, count_include_pad=False
 
     def singleD_forward(self, model, input):
         if self.getIntermFeat:
@@ -405,7 +407,7 @@ class NLayerDiscriminator(nn.Module):
         self.n_layers = n_layers
 
         kw = 4
-        padw = int(np.ceil((kw-1.0)/2))
+        padw = 1            #padw = int(np.ceil((kw-1.0)/2))
         sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]]
 
         nf = ndf
@@ -420,12 +422,12 @@ class NLayerDiscriminator(nn.Module):
         nf_prev = nf
         nf = min(nf * 2, 512)
         sequence += [[
-            nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1, padding=padw),
+            nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2, padding=padw),
             norm_layer(nf),
             nn.LeakyReLU(0.2, True)
         ]]
 
-        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]]
+        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=2, padding=padw)]]
 
         if use_sigmoid:
             sequence += [[nn.Sigmoid()]]
