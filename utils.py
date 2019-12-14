@@ -67,7 +67,7 @@ class SaveData():
         self.logFile.write(log + '\n')
         self.logFile.flush()
 
-    def load_model(self, Generator, GlobalDiscriminator, LocalDiscrimminator):
+    def load_model(self, Generator, GlobalDiscriminator):
         Generator.load_state_dict(torch.load(self.save_dir_model + '/Gen_lastest.pt'))
         GlobalDiscriminator.load_state_dict(torch.load(self.save_dir_model + '/DisGlobal_lastest.pt'))
         last_epoch = torch.load(self.save_dir_model + '/last_epoch.pt')
