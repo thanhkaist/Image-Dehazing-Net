@@ -14,17 +14,17 @@ parser = argparse.ArgumentParser(description='Super Resolution')
 parser.add_argument('model_name', choices=['Normal', 'Enhance'], help='model to select')
 parser.add_argument('--dataset', type=str, default='Indoor')
 
-parser.add_argument('--pretrained_model', default='resultOut3/Net1/model/Gen_lastest.pt', help='save result') # Gen_best Gen_lastest
+parser.add_argument('--pretrained_model', default='resultIn6/Net1/model/Gen_best.pt', help='save result') # Gen_best Gen_lastest
 
 parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 parser.add_argument('--gpu', type=int, default=0, help='gpu index')
-parser.add_argument('--resblock', type=int, default=3, help='resblock')
+parser.add_argument('--resblock', type=int, default=6, help='resblock')
 args = parser.parse_args()
 
-if args.gpu == 1:
+if args.gpu == 0:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-elif args.gpu == 0:
+elif args.gpu == 1:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 

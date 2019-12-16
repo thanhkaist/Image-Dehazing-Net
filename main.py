@@ -40,8 +40,8 @@ parser.add_argument('--patchSize', type=int, default=64, help='patch size')
 parser.add_argument('--batchSize', type=int, default=2, help='input batch size for training')
 parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
 parser.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
-parser.add_argument('--lrDecay', type=int, default=500, help='epoch of half lr')
-parser.add_argument('--decayType', default='inv', help='lr decay function')
+parser.add_argument('--lrDecay', type=int, default=1000, help='epoch of half lr')
+parser.add_argument('--decayType', default='step', help='lr decay function')
 parser.add_argument('--lossType', default='L1', help='Loss type')
 parser.add_argument('--lamda', type= float, default=0.2,help= 'Hyper lamda')
 parser.add_argument('--alpha', type= float, default=0.2,help= 'Hyper alpha')
@@ -61,19 +61,20 @@ elif args.gpu == 1:
 
 
 class LrScheduler():
-    def __init__(self, init_lr, type='step', decay_interval=300):
+    def __init__(self, init_lr, type='step', decay_interval=300, rate = 10):
         if type in ['step', 'inv', 'exp'] == False:
             raise Exception('{} learning rate scheduler is not supported'.format(type))
         self.__type = type
+        self.__rate = rate
         self.__init_lr = init_lr
         self.__decay_interval = decay_interval
 
     def adjust_lr(self, epoch, optimizer):
         if self.__type == 'step':
             epoch_iter = (epoch + 1) // self.__decay_interval
-            lr = self.__init_lr / 2 ** epoch_iter
+            lr = self.__init_lr / self.__rate ** epoch_iter
         elif self.__type == 'exp':
-            k = math.log(2) / self.__decay_interval
+            k = math.log(self.__rate) / self.__decay_interval
             lr = args.lr * math.exp(-k * epoch)
         elif self.__type == 'inv':
             k = 1 / self.__decay_interval
@@ -132,7 +133,7 @@ def test(model, dataloader,epoch, metric=0):
         if (batch == 0) and True:
             out = Image.fromarray(np.uint8(enhance), mode='RGB')  # output of SRCNN
             out.save('%s/%s.png' % (args.saveDir,epoch))
-            #break # just save 1 image for evaluating
+            break # just save 1 image for evaluating
         # crop to size output
         if have_gt:
             im_gt = im_gt[:enhance.shape[0],:enhance.shape[1],:]
@@ -158,7 +159,7 @@ def train(args):
     alpha = args.alpha
     have_gt = 0
     gpu_id = 0
-    no_epoch_eval = 500
+    no_epoch_eval = 300
     # define model
     if args.model_name == 'Normal':
         Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[gpu_id] )
@@ -212,10 +213,15 @@ def train(args):
     # optimizer
     optim_G = optim.Adam(Generator.parameters(), lr=args.lr)
     optim_D = optim.Adam(Discriminator.parameters(), lr=args.lr)
-    lr_cheduler = LrScheduler(args.lr, 'inv', args.lrDecay)
+    lr_cheduler = LrScheduler(args.lr, args.decayType, args.lrDecay)
 
     # log var
+    avg_loss_D_real = AverageMeter()
+    avg_loss_D_fake = AverageMeter()
     avg_loss_D = AverageMeter()
+    avg_loss_G_gan = AverageMeter()
+    avg_loss_G_vgg = AverageMeter()
+    avg_loss_G_mse = AverageMeter()
     avg_loss_G = AverageMeter()
     avg_time = AverageMeter()
     avg_time.reset()
@@ -254,8 +260,15 @@ def train(args):
             loss_D_real = lossGAN(pred_real,True)
             
             total_loss_D = alpha*(loss_D_fake + loss_D_real)
+
+            # back prob
             total_loss_D.backward()
             optim_D.step()
+
+            # log loss
+            avg_loss_D_real.update(loss_D_real.data.item() , args.batchSize)
+            avg_loss_D_fake.update(loss_D_fake.data.item() , args.batchSize)
+            avg_loss_D.update(total_loss_D.data.item() , args.batchSize)
 
             # Update discriminator
             set_requires_grad(Discriminator,False) # Disable update D 
@@ -282,12 +295,19 @@ def train(args):
             if True:
                 loss_G_VGG = lossVGG(enhance_imgs, gt_imgs) * lamda
             loss_G_L2 = lossMse(enhance_imgs, gt_imgs)
-
             total_loss_G = alpha*loss_G_GAN + loss_G_GAN_Feat + loss_G_VGG + loss_G_L2
+
+            # backprob
             total_loss_G.backward()
             optim_G.step()
-            avg_loss_D.update(total_loss_D.data.item() , args.batchSize)
-            avg_loss_G.update(total_loss_G.data.item() , args.batchSize)
+
+            # update loss
+            avg_loss_G_vgg.update(loss_G_VGG.data.item(), args.batchSize)
+            avg_loss_G_gan.update(loss_G_GAN.data.item(), args.batchSize)
+            avg_loss_G_mse.update(loss_G_L2.data.item(), args.batchSize)
+            avg_loss_G.update(total_loss_G.data.item(), args.batchSize)
+
+
         end = time.time()
         epoch_time = (end - start)
         avg_time.update(epoch_time)
@@ -297,8 +317,16 @@ def train(args):
         save.save_log(log)
         save.log_csv('train', epoch + 1, learning_rate, avg_loss_D.sum() + avg_loss_G.sum(), avg_loss_D.avg(),avg_loss_G.avg(), avg_time.sum() / 60)
         save.write_tf_board('sum_loss',avg_loss_D.sum() + avg_loss_G.sum(),epoch+1)
+
+        save.write_tf_board('avg_loss_D_real', avg_loss_D_real.avg(), epoch + 1)
+        save.write_tf_board('avg_loss_D_fake', avg_loss_D_fake.avg(), epoch + 1)
         save.write_tf_board('avg_loss_D',avg_loss_D.avg(),epoch+1)
+
+        save.write_tf_board('avg_loss_G_GAN', avg_loss_G_gan.avg(), epoch + 1)
+        save.write_tf_board('avg_loss_G_mse', avg_loss_G_mse.avg(), epoch + 1)
+        save.write_tf_board('avg_loss_G_VGG', avg_loss_G_vgg.avg(), epoch + 1)
         save.write_tf_board('avg_loss_G',avg_loss_G.avg(),epoch+1)
+
         if (epoch + 1) % args.period == 0 and (epoch + 1) >=no_epoch_eval:
             Generator.eval()
             if have_gt:
