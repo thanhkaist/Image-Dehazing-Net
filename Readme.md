@@ -49,7 +49,7 @@ In case that you want to test your model, read the test_model.sh and modify the 
 
 ### Evaluate NIQE
 
-You can download MATLAB evaluation code at this link: https://www.dropbox.com/s/xpcqcucxjn2y28d/evaluation_code.zip?dl=0
+You can download MATLAB evaluation code at this link: https://www.dropbox.com/s/xpcqcucxjn2y28d/evaluation_code.zip?dl=0 \
 Copy your output images into Input folder and run matlab file: evaluate_results.m to get NIQE score
  
 ### Result
