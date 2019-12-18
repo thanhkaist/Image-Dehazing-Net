@@ -46,7 +46,7 @@ def print_network(net):
     
 def get_generator( enhance = False,ngf=32, n_downsample_global=3, n_blocks_global=3, gpu_ids=[]):
     netG = Gen2Local(3, 3,enhance, ngf, n_downsample_global, n_blocks_global)
-    print(netG)
+    # print(netG)
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())   
         netG.cuda(gpu_ids[0])
@@ -55,7 +55,7 @@ def get_generator( enhance = False,ngf=32, n_downsample_global=3, n_blocks_globa
     
 def get_discriminator( input_nc = 6,ndf=64, n_layers_D = 3, gpu_ids=[]):           
     netD = MultiscaleDiscriminator(input_nc, ndf, n_layers_D)   
-    print(netD)
+    # print(netD)
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())
         netD.cuda(gpu_ids[0])
@@ -121,6 +121,95 @@ class VGGLoss(nn.Module):
         for i in range(len(x_vgg)):
             loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())        
         return loss
+    
+    
+# Super Resolution
+class RCAN(nn.Module):
+    def __init__(self,scale = 2,res_blocks = 10, rcab_blocks= 20, channels=64 ):
+        super(RCAN, self).__init__()
+        self.RBs = res_blocks
+        self.RCABs = rcab_blocks
+        self.scale = scale
+        self.channels =channels
+        # Define Network
+        # ===========================================
+        upsample_block_num = int(math.log(self.scale, 2))
+        self.block1 = nn.Sequential(
+            nn.Conv2d(3, self.channels, kernel_size=3, padding=1),
+            nn.ReLU()
+        )
+        block2= [RG(self.channels,self.RCABs) for _ in range(self.RBs)]
+        block2.append(nn.Conv2d(self.channels,self.channels,3,1,1))
+        self.block2 = nn.Sequential(*block2)
+        block3 = [UpsampleBlock(64, 2) for _ in range(upsample_block_num)]
+        block3.append(nn.Conv2d(64, 3, kernel_size=3, padding=1))
+        self.block3 = nn.Sequential(*block3)
+
+    def forward(self, x):
+        block1 = self.block1(x)
+        block2 = self.block2(block1)
+        block3 = self.block3(block2+block1)
+        return block3
+
+class RG(nn.Module):
+    def __init__(self,in_channels = 64,RCAB_blocks = 20):
+        super(RG,self).__init__()
+        RCABs = [RCAB(in_channels) for _ in range(RCAB_blocks)]
+        RCABs.append(nn.Conv2d(in_channels,in_channels,3,padding=1))
+        self.RCABs = nn.Sequential(*RCABs)
+
+    def forward(self, x):
+        out = self.RCABs(x)
+        return out + x
+
+class RCAB(nn.Module):
+
+    def __init__(self,in_channels =64):
+        super(RCAB,self).__init__()
+        self.in_channels= in_channels
+        self.filter_size = in_channels
+        self.conv1 = nn.Conv2d(self.in_channels,self.filter_size,3,1,1)
+        self.relu1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(self.filter_size,self.filter_size,3,1,1)
+        self.ca1 = CA(in_channels)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.relu1(out)
+        out =self.conv2(out)
+        out = self.ca1(out )
+        return x+out
+
+
+class CA(nn.Module):
+    def __init__(self,in_channels = 64,reduction = 8):
+        super(CA,self).__init__()
+        self.pooling = nn.AdaptiveAvgPool2d(1)
+        self.conv_bottle = nn.Sequential(
+            nn.Conv2d(in_channels,in_channels//reduction,kernel_size=(1,1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels//reduction,in_channels,kernel_size=(1,1)),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        out = self.pooling(x)
+        out = self.conv_bottle(x)
+        return x*out.expand_as(x)
+
+class UpsampleBlock(nn.Module):
+
+    def __init__(self, in_channels, up_scale):
+        super(UpsampleBlock, self).__init__()
+        self.conv = nn.Conv2d(in_channels, in_channels * up_scale ** 2, kernel_size=3, padding=1)
+        self.pixel_suffle = nn.PixelShuffle(up_scale)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.pixel_suffle(x)
+        x = self.relu(x)
+        return x
         
 # Image Dehazing
 
@@ -158,7 +247,7 @@ class Gen1Global(nn.Module):
 class Gen2Local(nn.Module):
 
     def __init__(self, input_nc, output_nc, enhance = True, ngf=32, n_downsample_global=3, n_blocks_global=9,
-                 n_local_enhancers=1, n_blocks_local=3, norm_layer=nn.BatchNorm2d, padding_type='reflect'):
+                 n_local_enhancers=1, n_blocks_local=3, norm_layer=nn.InstanceNorm2d, padding_type='reflect'):
         super(Gen2Local, self).__init__()
         self.n_local_enhancers = n_local_enhancers
 
@@ -243,7 +332,7 @@ class EnhancerBlock(nn.Module):
 
         self.upsample = F.upsample_nearest
 
-        self.batch1 = nn.BatchNorm2d()
+        self.batch1 = nn.InstanceNorm2d(100, affine=True)
 
     def forward(self, x):
         dehaze = self.relu((self.refine1(x)))
@@ -271,7 +360,7 @@ class EnhancerBlock(nn.Module):
 
 
 class MultiscaleDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d,
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d, 
                  use_sigmoid=False, num_D=2, getIntermFeat=False):
         super(MultiscaleDiscriminator, self).__init__()
         self.num_D = num_D

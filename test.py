@@ -8,7 +8,7 @@ from PIL import Image
 from data import get_test_dataloader
 import time
 
-parser = argparse.ArgumentParser(description='Super Resolution')
+parser = argparse.ArgumentParser(description='Image dehazing')
 
 # validation data
 parser.add_argument('model_name', choices=['Normal', 'Enhance'], help='model to select')

@@ -7,7 +7,7 @@ Create data folder:
 
 ```mkdir data``` 
 
-Unzip GoPro dataset to **data** folder such that we have:
+Unzip dataset to **data** folder such that we have:
 - data/IndoorTestHazy 
 - data/IndoorTrainGT
 - data/IndoorTrainHazy
