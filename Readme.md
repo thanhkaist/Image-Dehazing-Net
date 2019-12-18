@@ -2,69 +2,55 @@ EE838 HOME WORK 3
 ======================
 ### Prerequisite
 
-Dowload data set from the link: : https://www.dropbox.com/s/u842yorwmap7xij/GOPRO_Large.zip?dl=0 \
+Dowload data set from the link: : https://www.dropbox.com/s/wc3b0q0d3querb3/Dehazing_datasets.zip?dl=0  \
 Create data folder:
 
 ```mkdir data``` 
 
 Unzip GoPro dataset to **data** folder such that we have:
-- data/train : train data
-- data/test : test data
+- data/IndoorTestHazy 
+- data/IndoorTrainGT
+- data/IndoorTrainHazy
+- data/OutdoorTestHazy 
+- data/OutdoorTrainGT
+- data/OutdoorTrainHazy
 
 Set up environment:
 
-```conda create -n deblur python=3.6```\
-```conda activate deblur```\
+```conda create -n dehaze python=3.6```\
+```conda activate dehaze```\
 ```pip install -r requirement.txt```
 
 ### How to train 
 Train the network by run corresponding command below:
 
-One scale
+Indoor:
 
-```./one_scale_no_lsc.sh``` 
+```./net_train_indoor.sh``` 
 
-One scale with long skip connection
+Outdoor:
 
-```./one_scale__lsc.sh```
-
-Multi scale 
-
-```./multi_scale_no_lsc.sh```
-
-Multi scale with long skip connection 
-
-```./multi_scale_with_lsc.sh```
+```./net_train_outdoor.sh```
 
 ### How to test 
 I provide pretrained model at url: https://drive.google.com/file/d/1OrtRLABEVb-nLHf39CamDKp4ayrxIDi9/view?usp=sharing
 
 upzip the pretrained model to **src** folder such that we have these folders:
-- one_scale1
-- one_scale_lsc1
-- multi_scale1
-- multi_scale_lsc1
-- multi_scale_lsc1000
+- resultIn/Net1/model/model_best.pt
+- resultOut/Net1/model/model_best.pt
 
-Run test:
+Run test script to generate output images:
 
-```./test_model.sh```
+```./net_test_in_out.sh```
 
 All the result will be store in **val** folder
 
 In case that you want to test your model, read the test_model.sh and modify the pretrained_model path.
 
-### PSNR, SSIM, MS-SSIM
-I used **SKIMAGE** library for calculate PSNR and SSIM 
+### Evaluate NIQE
 
-```python
-from skimage.measure import compare_ssim as ssim
-from skimage.measure import compare_psnr as psnr
-```
-
-For MS-SSIM, I used **Tensorflow** code which is available at: https://github.com/tensorflow/models/blob/master/research/compression/image_encoder/msssim.py
-The code is hard copy to **utils.py**, so we don't need to worry about the dependency. 
-
+You can download MATLAB evaluation code at this link: https://www.dropbox.com/s/xpcqcucxjn2y28d/evaluation_code.zip?dl=0
+Copy your output images into Input folder and run matlab file: evaluate_results.m to get NIQE score
  
 ### Result
 
