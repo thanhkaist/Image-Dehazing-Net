@@ -1,4 +1,4 @@
-EE838 HOME WORK 3
+Image Dehazing Network
 ======================
 ### Prerequisite
 
