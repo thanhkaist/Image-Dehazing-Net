@@ -36,12 +36,12 @@ def test(args):
     lamda = 10
     # define model
     if args.model_name == 'Normal':
-        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[args.gpu])
-        Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
+        Generator = model.get_generator(False,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[0])
+        #Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
 
     elif args.model_name == 'Enhance':
-        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[args.gpu])
-        Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
+        Generator = model.get_generator(True,ngf=32, n_downsample_global=3, n_blocks_global=args.resblock, gpu_ids=[0])
+        #Discriminator = model.get_discriminator(input_nc=6, ndf=64, n_layers_D=no_layer_D, gpu_ids=[args.gpu])
     else:
         raise Exception("The model name is wrong/ not supported yet: {}".format(args.model_name))
 

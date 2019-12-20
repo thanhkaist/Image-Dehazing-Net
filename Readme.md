@@ -33,7 +33,7 @@ Outdoor:
 ```./net_train_outdoor.sh```
 
 ### How to test 
-I provide pretrained model at url: https://drive.google.com/file/d/1OrtRLABEVb-nLHf39CamDKp4ayrxIDi9/view?usp=sharing
+I provide pretrained model at url: https://drive.google.com/file/d/1MG2-NV6eHZ-XwpnYi6--hC8zYbHZb5YC/view?usp=sharing
 
 upzip the pretrained model to **src** folder such that we have these folders:
 - resultIn/Net1/model/model_best.pt
