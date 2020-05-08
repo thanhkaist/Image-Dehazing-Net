@@ -54,3 +54,16 @@ Copy your output images into Input folder and run matlab file: evaluate_results.
  
 ### Result
 
+|      | Indoor (NIQE) | Outdoor(NIQE) |
+|------|---------------|---------------|
+| HAZY | 6.4564        | 4.1471        |
+| OUR  | 3.6753        | 3.6608        |
+
+Statictis on 1 GPU Titan X
+
+|                                | Indoor     | Outdoor   |
+|--------------------------------|------------|-----------|
+| Generator parameter            | 34.1M      | 34M       |
+| Discriminator parameter        | 5.5M       | 5.5M      |
+| Training time (10000 epoches)  | 52.9 hour  | 61.0 hour |
+| Testing time                   | 0.0241     | 0.1765    |
