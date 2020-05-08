@@ -59,7 +59,7 @@ Copy your output images into Input folder and run matlab file: evaluate_results.
 | HAZY | 6.4564        | 4.1471        |
 | OUR  | 3.6753        | 3.6608        |
 
-Statictis on 1 GPU Titan X
+Statistic on 1 GPU Titan X
 
 |                                | Indoor     | Outdoor   |
 |--------------------------------|------------|-----------|
